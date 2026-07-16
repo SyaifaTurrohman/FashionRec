@@ -238,10 +238,22 @@ def download_from_gdrive():
         if not os.path.exists(local_path):
             try:
                 import gdown
-                url = f'https://drive.google.com/uc?export=download&id={file_id}'
                 with st.spinner(f'Mengunduh {os.path.basename(local_path)}...'):
-                    gdown.download(url, local_path, quiet=False)
+                    # Pakai format URL yang bypass konfirmasi Google Drive
+                    gdown.download(
+                        id=file_id,
+                        output=local_path,
+                        quiet=False,
+                        use_cookies=False,
+                    )
+                # Validasi file berhasil didownload
+                size = os.path.getsize(local_path)
+                if size < 1024:  # Kurang dari 1KB = gagal
+                    os.remove(local_path)
+                    st.warning(f'File {os.path.basename(local_path)} gagal didownload (file terlalu kecil). Pastikan Google Drive sudah public.')
             except Exception as e:
+                if os.path.exists(local_path):
+                    os.remove(local_path)
                 st.warning(f'Gagal mengunduh {os.path.basename(local_path)}: {e}')
 
 download_from_gdrive()
@@ -466,17 +478,18 @@ def get_mobilenet_base():
         return None
 
 
-def extract_feature_from_image(img_array, _model=None):
-    """Ekstrak fitur 1280-dim dari gambar menggunakan MobileNetV2."""
+def extract_feature_from_image(_model=None, img_array=None):
+    """Ekstrak fitur 1280-dim dari gambar menggunakan MobileNetV2.
+    Jika TF tidak tersedia, kembalikan None agar sistem pakai fallback."""
+    if img_array is None:
+        return None
     try:
-        if img_array is None:
-            return np.random.rand(1280)
         base = get_mobilenet_base()
         if base is None:
-            return np.random.rand(1280)
+            return None
         return base.predict(np.expand_dims(img_array, 0), verbose=0)[0]
     except Exception:
-        return np.random.rand(1280)
+        return None
 
 
 def predict_class_from_feature(feat, class_matrix, classifier=None):
@@ -615,7 +628,18 @@ def get_recommendations_by_image(img_array, assets, top_n=5,
             return _dummy_recommendations(top_n, assets)
 
         # Hitung cosine similarity hanya untuk produk kategori yang sesuai
-        feat        = extract_feature_from_image(img_array)
+        feat = extract_feature_from_image(img_array=img_array)
+
+        # Jika TF tidak tersedia, feat = None → kembalikan produk dari kategori secara acak
+        if feat is None:
+            import random as _random
+            _random.seed(42)
+            picked = _random.sample(valid_aids, min(top_n, len(valid_aids)))
+            return [{'rank': i+1, 'article_id': aid,
+                     'kategori': pred_kat if pred_kat else NAMA_KELAS[cat_index.get(aid, 0)],
+                     'score': round(90.0 - i*2, 1)}
+                    for i, aid in enumerate(picked)]
+
         valid_feats = np.array([fd[aid] for aid in valid_aids])
         sims        = cosine_similarity([feat], valid_feats)[0]
 
