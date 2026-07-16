@@ -240,7 +240,7 @@ def download_from_gdrive():
                 import gdown
                 url = f'https://drive.google.com/uc?export=download&id={file_id}'
                 with st.spinner(f'Mengunduh {os.path.basename(local_path)}...'):
-                    gdown.download(url, local_path, quiet=False, fuzzy=True)
+                    gdown.download(url, local_path, quiet=False)
             except Exception as e:
                 st.warning(f'Gagal mengunduh {os.path.basename(local_path)}: {e}')
 
