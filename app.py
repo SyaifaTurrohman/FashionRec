@@ -212,8 +212,10 @@ section[data-testid="stSidebar"] .stCheckbox label { font-size: 11px !important;
 .styled-table tr:nth-child(even) { background: var(--line-soft); }
 .td-highlight { font-weight: 500; color: var(--ink); }
 .stTabs [data-baseweb="tab-list"] { gap: 4px; border-bottom: 0.5px solid var(--line); }
-.stTabs [data-baseweb="tab"] { font-size: 13px; color: var(--muted); font-weight: 400; padding: 8px 4px; }
+.stTabs [data-baseweb="tab"] { font-size: 13px; color: var(--muted) !important; font-weight: 400; padding: 8px 4px; }
 .stTabs [aria-selected="true"] { color: var(--ink) !important; border-bottom-color: var(--blue) !important; }
+.stTabs [data-baseweb="tab"] p { color: var(--muted) !important; }
+.stTabs [aria-selected="true"] p { color: var(--ink) !important; }
 .prob-row { display: flex; align-items: center; gap: 10px; margin-bottom: 7px; }
 .prob-label { font-size: 11px; width: 68px; text-align: right; color: var(--muted); }
 .prob-bar-bg { flex: 1; height: 5px; background: var(--line); border-radius: 3px; overflow: hidden; }
@@ -235,11 +237,11 @@ MODEL_DIR   = 'model'
 DATA_DIR    = 'data'
 
 NAV_ICONS = {
-    "Dashboard":          "⊞",
-    "Prediksi Fashion":   "⊙",
-    "Rekomendasi Produk": "⊛",
-    "Evaluasi Model":     "⊟",
-    "Tentang Sistem":     "⊜",
+    "Dashboard":          "🏠",
+    "Prediksi Fashion":   "📷",
+    "Rekomendasi Produk": "🛍",
+    "Evaluasi Model":     "📊",
+    "Tentang Sistem":     "ℹ️",
 }
 
 # SVG ikon untuk sidebar (ditampilkan via st.markdown)
@@ -900,6 +902,7 @@ with st.sidebar:
         index=_cur_idx,
         key="nav_radio",
         label_visibility="hidden",
+        format_func=lambda x: f"{NAV_ICONS.get(x, '')}  {x}",
     )
     if page != _cur_page:
         st.session_state['page'] = page
