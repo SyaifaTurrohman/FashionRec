@@ -226,7 +226,25 @@ li, span, label { color: var(--ink-soft); }
 """, unsafe_allow_html=True)
 
 
-# File data diload langsung dari folder data/
+# ─── AUTO-DOWNLOAD FILE DARI GOOGLE DRIVE ────────────────────────────────────
+def download_from_gdrive():
+    import os
+    os.makedirs('data', exist_ok=True)
+    files = {
+        'data/images_subset.db': '1f8ca-V4sRaBradSpKp4zSAwm4hiJJOfP',
+        'data/feature_dict.npy': '1Jc6-ARzmcaq_zASPLEit6IQc2OCWJTnJ',
+    }
+    for local_path, file_id in files.items():
+        if not os.path.exists(local_path):
+            try:
+                import gdown
+                url = f'https://drive.google.com/uc?export=download&id={file_id}'
+                with st.spinner(f'Mengunduh {os.path.basename(local_path)}...'):
+                    gdown.download(url, local_path, quiet=False, fuzzy=True)
+            except Exception as e:
+                st.warning(f'Gagal mengunduh {os.path.basename(local_path)}: {e}')
+
+download_from_gdrive()
 
 # ─── KONSTANTA ────────────────────────────────────────────────────────────────
 NAMA_KELAS  = ['Blouse','Dress','Hoodie','Jacket','Shirt','Shorts','Skirt','Sweater','T-shirt','Trousers']
