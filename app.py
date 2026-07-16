@@ -230,31 +230,47 @@ li, span, label { color: var(--ink-soft); }
 def download_from_gdrive():
     import os
     os.makedirs('data', exist_ok=True)
+
     files = {
-        'data/images_subset.db': '1f8ca-V4sRaBradSpKp4zSAwm4hiJJOfP',
-        'data/feature_dict.npy': '1Jc6-ARzmcaq_zASPLEit6IQc2OCWJTnJ',
+        'data/feature_dict.npy': ('1Jc6-ARzmcaq_zASPLEit6IQc2OCWJTnJ', 100 * 1024),  # min 100KB
+        'data/images_subset.db': ('1f8ca-V4sRaBradSpKp4zSAwm4hiJJOfP', 100 * 1024),  # min 100KB
     }
-    for local_path, file_id in files.items():
+
+    for local_path, (file_id, min_size) in files.items():
+        fname = os.path.basename(local_path)
+
+        # Hapus file corrupt (terlalu kecil)
+        if os.path.exists(local_path):
+            if os.path.getsize(local_path) < min_size:
+                os.remove(local_path)
+
         if not os.path.exists(local_path):
-            try:
-                import gdown
-                with st.spinner(f'Mengunduh {os.path.basename(local_path)}...'):
-                    # Pakai format URL yang bypass konfirmasi Google Drive
-                    gdown.download(
+            with st.spinner(f'Mengunduh {fname}...'):
+                try:
+                    import gdown
+                    # Coba dengan id parameter
+                    result = gdown.download(
                         id=file_id,
                         output=local_path,
                         quiet=False,
                         use_cookies=False,
                     )
-                # Validasi file berhasil didownload
-                size = os.path.getsize(local_path)
-                if size < 1024:  # Kurang dari 1KB = gagal
-                    os.remove(local_path)
-                    st.warning(f'File {os.path.basename(local_path)} gagal didownload (file terlalu kecil). Pastikan Google Drive sudah public.')
-            except Exception as e:
-                if os.path.exists(local_path):
-                    os.remove(local_path)
-                st.warning(f'Gagal mengunduh {os.path.basename(local_path)}: {e}')
+                    if result is None or not os.path.exists(local_path):
+                        raise Exception("Download gagal")
+                    if os.path.getsize(local_path) < min_size:
+                        os.remove(local_path)
+                        raise Exception(f"File terlalu kecil ({os.path.getsize(local_path)} bytes)")
+                except Exception as e1:
+                    # Fallback: coba dengan URL langsung
+                    try:
+                        import urllib.request
+                        url = f'https://drive.google.com/uc?export=download&confirm=t&id={file_id}'
+                        urllib.request.urlretrieve(url, local_path)
+                        if os.path.getsize(local_path) < min_size:
+                            os.remove(local_path)
+                            st.error(f'❌ {fname}: Pastikan Google Drive sudah diset Public (Anyone with link)')
+                    except Exception as e2:
+                        st.error(f'❌ Gagal mengunduh {fname}: {e2}')
 
 download_from_gdrive()
 
@@ -439,7 +455,15 @@ def load_model_and_assets():
     assets['class_matrix'] = np.load(cm_path, allow_pickle=True) if os.path.exists(cm_path) else None
 
     fd_path = os.path.join(DATA_DIR, 'feature_dict.npy')
-    assets['feature_dict'] = np.load(fd_path, allow_pickle=True).item() if os.path.exists(fd_path) else {}
+    if os.path.exists(fd_path):
+        try:
+            assets['feature_dict'] = np.load(fd_path, allow_pickle=True).item()
+        except Exception:
+            # File corrupt — hapus agar didownload ulang
+            os.remove(fd_path)
+            assets['feature_dict'] = {}
+    else:
+        assets['feature_dict'] = {}
 
     le_path = os.path.join(MODEL_DIR, 'label_encoder.pkl')
     if os.path.exists(le_path):
