@@ -1,10 +1,3 @@
-"""
-╔══════════════════════════════════════════════════════════════════╗
-║     FashionRec — Sistem Rekomendasi Produk Fashion               ║
-║     Model Hybrid CNN-LSTM | Syaifa Turrohman | UNPAK 2026        ║
-╚══════════════════════════════════════════════════════════════════╝
-"""
-
 import streamlit as st
 import numpy as np
 import pandas as pd
