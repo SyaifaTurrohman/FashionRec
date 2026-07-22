@@ -321,14 +321,20 @@ def build_classifier(input_dim=1280, num_classes=10):
         return None
 
 # ─── DATABASE GAMBAR ──────────────────────────────────────────────────────────
-DB_IMAGE_PATH      = os.path.join(DATA_DIR, 'images_subset.db')
+DB_IMAGE_PATH = os.path.join(DATA_DIR, 'images_subset.db')
+
+def get_db_available():
+    """Cek ketersediaan DB gambar secara dinamis."""
+    return os.path.exists(DB_IMAGE_PATH)
+
+# Di-set setelah download selesai
 DB_IMAGE_AVAILABLE = os.path.exists(DB_IMAGE_PATH)
 
 
 # ─── FUNGSI GAMBAR (DIPERBAIKI) ───────────────────────────────────────────────
 def get_db_table_info():
     """Debug: cek nama tabel dan kolom di database."""
-    if not DB_IMAGE_AVAILABLE:
+    if not get_db_available():
         return None, None
     try:
         conn   = sqlite3.connect(DB_IMAGE_PATH)
@@ -345,7 +351,7 @@ def get_db_table_info():
 @st.cache_data(show_spinner=False)
 def get_db_article_ids():
     """Ambil semua article_id yang tersedia di database gambar."""
-    if not DB_IMAGE_AVAILABLE:
+    if not get_db_available():
         return set()
     try:
         conn   = sqlite3.connect(DB_IMAGE_PATH)
@@ -366,7 +372,7 @@ def get_db_article_ids():
 @st.cache_data(show_spinner=False)
 def load_img_bytes(article_id: str):
     """Baca gambar dari SQLite dan kembalikan BytesIO siap pakai st.image."""
-    if not DB_IMAGE_AVAILABLE:
+    if not get_db_available():
         return None
     try:
         conn = sqlite3.connect(DB_IMAGE_PATH)
@@ -545,7 +551,12 @@ def get_recommendations(customer_id, assets, top_n=5):
         model = assets.get('classifier')
         if df.empty or not fd:
             return _dummy_recommendations(top_n)
-        cust_trans  = df[df['customer_id'] == customer_id].sort_values('t_dat')
+        # Cari customer_id — support pencarian parsial (minimal 8 karakter)
+        if len(customer_id) >= 8:
+            mask = df['customer_id'].str.startswith(customer_id) | (df['customer_id'] == customer_id)
+        else:
+            mask = df['customer_id'] == customer_id
+        cust_trans  = df[mask].sort_values('t_dat')
         article_ids = cust_trans['article_id'].astype(str).tolist()
         features    = [fd[a] for a in article_ids if a in fd]
         if len(features) < WINDOW_SIZE:
@@ -602,7 +613,7 @@ def _dummy_recommendations(top_n=5, assets=None):
             return results
     # Ultimate fallback jika feature_dict kosong
     return [
-        {'rank': i+1, 'article_id': f'000000000{i}',
+        {'rank': i+1, 'article_id': f'054666000{i}',
          'kategori': NAMA_KELAS[i % 10], 'score': round(90.0 - i*5, 1)}
         for i in range(top_n)
     ]
@@ -621,6 +632,43 @@ def build_category_index(_fd_keys: tuple, _fd_vals: tuple, _cm_tuple: tuple):
     # Kelas dengan similarity tertinggi = kategori produk
     labels   = np.argmax(all_sims, axis=1)
     return {aid: int(lbl) for aid, lbl in zip(_fd_keys, labels)}
+
+
+def get_recommendations_by_category(kategori, feat_query, assets, top_n=5):
+    """Rekomendasi hanya dari kategori yang sama dengan prediksi CNN."""
+    from sklearn.metrics.pairwise import cosine_similarity as _cos_sim
+    fd  = assets.get('feature_dict', {})
+    cm  = assets.get('class_matrix')
+    clf = assets.get('classifier')
+
+    if not fd or cm is None:
+        return _dummy_recommendations(top_n, assets)
+
+    # Gunakan category index yang sudah di-cache
+    fd_keys  = tuple(fd.keys())
+    fd_vals  = tuple(map(tuple, fd.values()))
+    cm_tuple = tuple(map(tuple, cm))
+    cat_index = build_category_index(fd_keys, fd_vals, cm_tuple)
+
+    target_lbl = NAMA_KELAS.index(kategori) if kategori in NAMA_KELAS else -1
+    valid_aids  = [aid for aid, lbl in cat_index.items() if lbl == target_lbl]
+
+    if not valid_aids:
+        return _dummy_recommendations(top_n, assets)
+
+    feats = np.array([fd[a] for a in valid_aids])
+    sims  = _cos_sim([feat_query], feats)[0]
+    recs  = []
+    for idx in np.argsort(sims)[::-1]:
+        recs.append({
+            'rank':       len(recs) + 1,
+            'article_id': valid_aids[idx],
+            'kategori':   kategori,
+            'score':      round(float(sims[idx]) * 100, 1)
+        })
+        if len(recs) >= top_n:
+            break
+    return recs if recs else _dummy_recommendations(top_n, assets)
 
 
 def get_recommendations_by_image(img_array, assets, top_n=5,
@@ -1036,7 +1084,7 @@ if page == "Dashboard":
                 Temukan produk yang<br>tepat untuk Anda
             </div>
             <div style="display:flex;gap:6px;flex-wrap:wrap">
-                <span style="font-size:10px;padding:3px 9px;border-radius:20px;border:0.5px solid rgba(255,255,255,0.1);color:#9CA3AF">41.560 produk</span>
+                <span style="font-size:10px;padding:3px 9px;border-radius:20px;border:0.5px solid rgba(255,255,255,0.1);color:#9CA3AF">41.552 produk</span>
                 <span style="font-size:10px;padding:3px 9px;border-radius:20px;border:0.5px solid rgba(255,255,255,0.1);color:#9CA3AF">10 kategori</span>
                 <span style="font-size:10px;padding:3px 9px;border-radius:20px;border:0.5px solid rgba(255,255,255,0.1);color:#9CA3AF">H&M Dataset</span>
             </div>
@@ -1108,8 +1156,8 @@ if page == "Dashboard":
     col_demo_l, col_demo_r = st.columns(2)
     with col_demo_l:
         st.markdown('<div class="card"><div style="font-size:12px;font-weight:500;color:var(--ink);margin-bottom:12px">Coba sekarang</div>', unsafe_allow_html=True)
-        demo_cid = st.text_input("Customer ID", value="C_0001827391", key="demo_cid",
-                                  label_visibility="collapsed", placeholder="Masukkan Customer ID")
+        demo_cid = st.text_input("Customer ID", value="e7c0ff2f724293c09bf3ba498c8c49b001040374fab1cdf", key="demo_cid",
+                                  label_visibility="collapsed", placeholder="Contoh: 0001d44dbe7f6c4b3520...")
         if st.button("Lihat rekomendasi", key="dash_reko"):
             with st.spinner("Memproses..."):
                 time.sleep(1)
@@ -1188,9 +1236,9 @@ elif page == "Prediksi Fashion":
             with st.spinner("Menganalisis foto..."):
                 time.sleep(1.2)
                 img_array = preprocess_image(uploaded.getvalue())
-                cm         = assets.get('class_matrix')
-                clf        = assets.get('classifier')
-                feat       = extract_feature_from_image(img_array, clf) if img_array is not None else None
+                cm        = assets.get('class_matrix')
+                clf       = assets.get('classifier')
+                feat      = extract_feature_from_image(img_array=img_array) if img_array is not None else None
                 if feat is not None:
                     lbl, probs = predict_class_from_feature(feat, cm, clf)
                 else:
@@ -1227,7 +1275,7 @@ elif page == "Prediksi Fashion":
                     from sklearn.metrics.pairwise import cosine_similarity as cos_sim
                     cm_check = assets.get('class_matrix')
                     if cm_check is not None:
-                        feat_vec  = extract_feature_from_image(feat_saved)
+                        feat_vec  = extract_feature_from_image(img_array=feat_saved)
                         # Similarity maksimum ke semua kelas
                         sims      = cos_sim([feat_vec], cm_check)[0]
                         max_sim   = float(sims.max())
@@ -1416,7 +1464,7 @@ elif page == "Rekomendasi Produk":
         col_l, col_r = st.columns([1, 1.8])
         with col_l:
             st.markdown('<div class="card"><div style="font-weight:600;font-size:14px;color:var(--ink);margin-bottom:16px">Rekomendasi Berdasarkan Riwayat Belanja</div>', unsafe_allow_html=True)
-            cid1    = st.text_input("Customer ID", value="C_0001827391", key="cid1")
+            cid1    = st.text_input("Customer ID", value="e7c0ff2f724293c09bf3ba498c8c49b001040374fab1cdf", key="cid1")
             topn1   = st.select_slider("Jumlah rekomendasi", options=[3,5,8,10], value=5, key="topn1")
             run_cid = st.button("Generate Rekomendasi", key="btn_cid")
             st.markdown("</div>", unsafe_allow_html=True)
@@ -1504,7 +1552,7 @@ elif page == "Rekomendasi Produk":
                 with st.spinner("Mengklasifikasikan foto..."):
                     time.sleep(1.5)
                     img2  = preprocess_image(uploaded2.getvalue())
-                    feat2 = extract_feature_from_image(img2) if img2 is not None else None
+                    feat2 = extract_feature_from_image(img_array=img2) if img2 is not None else None
                     cm2   = assets.get('class_matrix')
                     clf2  = assets.get('classifier')
                     if feat2 is not None:
@@ -1515,17 +1563,48 @@ elif page == "Rekomendasi Produk":
                     kat2  = NAMA_KELAS[int(lbl2)]
                     conf2 = float(probs2[int(lbl2)]) * 100
 
-                with st.spinner(f"Mencari produk {kat2}..."):
-                    recs2 = get_recommendations_by_image(
-                        img2, assets, top_n=topn2,
-                        pred_kat=kat2, confidence=conf2
-                    ) if img2 is not None else _dummy_recommendations(topn2, assets)
+                    # Deteksi OOD — cek similarity ke class_matrix
+                    is_ood2 = False
+                    if feat2 is not None and cm2 is not None:
+                        try:
+                            from sklearn.metrics.pairwise import cosine_similarity as _cs
+                            sims_ood = _cs([feat2], cm2)[0]
+                            is_ood2  = float(sims_ood.max()) < 0.50
+                        except Exception:
+                            is_ood2 = False
 
-                st.session_state['foto_recs']  = recs2
-                st.session_state['foto_label'] = f"{kat2} — {conf2:.0f}%"
-                st.session_state['foto_kat']   = kat2
-                st.session_state['foto_recs']  = recs2
-                st.session_state['foto_label'] = f"{kat2} — {conf2:.0f}%"
+                if is_ood2:
+                    st.markdown("""
+                    <div style="background:#FEE2E2;border:1px solid #EF4444;border-radius:8px;
+                        padding:14px 16px;margin-bottom:12px;display:flex;align-items:center;gap:10px">
+                        <span style="font-size:20px">❌</span>
+                        <div>
+                            <div style="font-size:13px;font-weight:500;color:#991B1B">Foto bukan produk fashion</div>
+                            <div style="font-size:12px;color:#B91C1C;margin-top:3px">
+                                Sistem hanya dapat merekomendasikan produk fashion.
+                                Silakan upload foto produk pakaian yang sesuai.
+                            </div>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    st.session_state.pop('foto_recs', None)
+                else:
+                    with st.spinner(f"Mencari produk {kat2}..."):
+                        if img2 is not None and feat2 is not None:
+                            recs2 = get_recommendations_by_category(
+                                kat2, feat2, assets, top_n=topn2
+                            )
+                        elif img2 is not None:
+                            recs2 = get_recommendations_by_image(
+                                img2, assets, top_n=topn2,
+                                pred_kat=kat2, confidence=conf2
+                            )
+                        else:
+                            recs2 = _dummy_recommendations(topn2, assets)
+
+                    st.session_state['foto_recs']  = recs2
+                    st.session_state['foto_label'] = f"{kat2} — {conf2:.0f}%"
+                    st.session_state['foto_kat']   = kat2
             if 'foto_recs' in st.session_state and st.session_state['foto_recs']:
                 label2 = st.session_state.get('foto_label', '')
                 conf2_val = float(label2.split('—')[-1].replace('%','').strip()) if '—' in label2 else 0
@@ -1548,7 +1627,7 @@ elif page == "Rekomendasi Produk":
         col_l3, col_r3 = st.columns([1, 1.8])
         with col_l3:
             st.markdown('<div class="card"><div style="font-weight:600;font-size:14px;color:var(--ink);margin-bottom:16px">Parameter Hybrid CNN-LSTM</div>', unsafe_allow_html=True)
-            cid3       = st.text_input("Customer ID", value="C_0001827391", key="cid3")
+            cid3       = st.text_input("Customer ID", value="e7c0ff2f724293c09bf3ba498c8c49b001040374fab1cdf", key="cid3")
             uploaded3  = st.file_uploader("Upload foto referensi", type=['jpg','jpeg','png'], key="up3")
             topn3      = st.select_slider("Jumlah rekomendasi", options=[3,5,8,10], value=5, key="topn3")
             if uploaded3:
@@ -1748,9 +1827,29 @@ elif page == "Evaluasi Model":
             ax.spines[['top','right']].set_visible(False)
             plt.tight_layout(); st.pyplot(fig, use_container_width=True); plt.close()
 
+    # ── Evaluasi Jalur LSTM ───────────────────────────────────────────────────
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown('<div class="section-header"><span class="section-title">Evaluasi Jalur LSTM</span><span class="section-badge">Feature Predictor</span></div>', unsafe_allow_html=True)
 
-# ══════════════════════════════════════════════════════════════════════════════
-# PAGE 5 — TENTANG SISTEM
+    lc1, lc2, lc3 = st.columns(3)
+    with lc1:
+        st.metric(label="Val Loss (MSE)", value="0,2487",
+                  help="Mean Squared Error pada 154 sequence validasi")
+    with lc2:
+        st.metric(label="Val MAE", value="0,3201",
+                  help="Mean Absolute Error pada 154 sequence validasi")
+    with lc3:
+        st.metric(label="Epoch Terbaik", value="28",
+                  help="Epoch di mana model mencapai Val Loss terkecil")
+
+    st.markdown("""
+    <div class="alert-info" style="margin-top:12px">
+        Jalur LSTM dievaluasi menggunakan <b>MSE</b> dan <b>MAE</b> karena tugasnya
+        memprediksi <b>feature vector 1.280 dimensi</b>, bukan mengklasifikasikan kategori.
+        Output LSTM kemudian digabungkan (concatenate) dengan output CNN untuk membentuk
+        feature fusion <b>2.560 dimensi</b>.
+    </div>
+    """, unsafe_allow_html=True)
 # ══════════════════════════════════════════════════════════════════════════════
 elif page == "Tentang Sistem":
     st.markdown("<br>", unsafe_allow_html=True)
@@ -1781,7 +1880,7 @@ elif page == "Tentang Sistem":
             ("Input",  "Citra produk + Riwayat transaksi", "#1F4D49"),
             ("CNN",    "MobileNetV2 — 1280 dim",           "#5B8C7B"),
             ("LSTM",   "128 units — Pola temporal",         "#A8895A"),
-            ("Fusion", "Concatenate — 1408 dim",            "#1F4D49"),
+            ("Fusion", "Concatenate — 2560 dim",            "#1F4D49"),
             ("FC",     "Dense 256 + ReLU + Dropout",        "#B5694A"),
             ("Output", "Softmax — 10 kelas",                "#1F4D49"),
         ]:
