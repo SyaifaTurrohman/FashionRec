@@ -492,12 +492,21 @@ def preprocess_image(img_bytes):
 def get_mobilenet_base():
     try:
         import tensorflow as tf
-        base = tf.keras.applications.MobileNetV2(
-            weights='imagenet', include_top=False, pooling='avg', input_shape=(224, 224, 3)
-        )
-        base.trainable = False
-        return base
-    except Exception:
+        local_path = os.path.join(MODEL_DIR, 'mobilenetv2_base.h5')
+        if os.path.exists(local_path):
+            # Load dari file lokal — lebih cepat dan konsisten
+            base = tf.keras.models.load_model(local_path)
+            base.trainable = False
+            return base
+        else:
+            # Fallback: download dari internet
+            base = tf.keras.applications.MobileNetV2(
+                weights='imagenet', include_top=False,
+                pooling='avg', input_shape=(224, 224, 3)
+            )
+            base.trainable = False
+            return base
+    except (ImportError, Exception):
         return None
 
 
